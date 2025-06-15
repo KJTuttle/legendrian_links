@@ -341,6 +341,8 @@ class PlatSegment(object):
         # enumerate all of the disk segments and return them as a set
         disk_segments = []
         # if it is a left close of a right close
+        # if left.close, then we sort strands by their right y values. Then we pair up adjacent strands
+        # into disk pairs, WANT TO MOD this to allow for c_ij 
         if self.left_close:
             line_segments = sorted(self.line_segments, key=lambda ls: ls.y_right)
             for i in range(len(line_segments)):
@@ -421,6 +423,7 @@ class PlatSegment(object):
             )
         )
         # with a crossing on the right
+        # Why is this here
         disk_segments.append(
             DiskSegment(
                 x=self.x,
@@ -477,7 +480,7 @@ class CappingPath(object):
     CappingPath's always follow orientation of the knot in which they're contained.
     Rotation numbers are computed assuming that all .
     """
-
+    # Need to figure out how capping paths work in S1 x S2 case
     def __init__(self, start_chord, end_chord, line_segments, t_label):
         self.start_chord = start_chord
         self.end_chord = end_chord
