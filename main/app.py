@@ -81,6 +81,7 @@ def get_diagram_context(pd, increment=50, pad=10):
         "increment": increment,
         "height": height,
         "width": width,
+        #ADD ONE HANDLE
         "lines": [
             {
                 'start_xy': [
@@ -143,6 +144,30 @@ def home():
             crossings = []
         else:
             crossings = [int(x) for x in crossings.split(",")]
+        # One handle input
+        num_one_handle = request.args.get('num_one_handle')
+        if num_one_handle is not None:
+            num_one_handle = int(num_one_handle)
+        else:
+            num_one_handle = 0
+
+        num_strands_per_handle = request.args.get('num_strands_per_handle')
+        if num_strands_per_handle:
+            num_strands_per_handle = [int(x) for x in num_strands_per_handle.split(',')]
+        else:
+            num_strands_per_handle = []
+
+        # Validation
+        if num_one_handle != len(num_strands_per_handle):
+            raise ValueError("num_one_handle does not match length of num_strands_per_handle")
+        if sum(num_strands_per_handle) > n_strands:
+            raise ValueError("Sum of strands per handle exceeds total number of strands")
+        if any(x <= 0 for x in num_strands_per_handle):
+            raise ValueError("All strands per handle must be positive")
+        if (n_strands - sum(num_strands_per_handle)) % 2 != 0:
+            raise ValueError("Cannot close the remiaing strands into a plat")
+
+        
         # Mirroring
         mirror = False
         mirror_flag = request.args.get('mirror')
@@ -176,7 +201,9 @@ def home():
                 lazy_lch=True,
                 lazy_rsft=True,
                 aug_fill_na=False,
-                spec_poly=False
+                spec_poly=False,
+                num_one_handle=num_one_handle,
+                num_strands_per_handle=num_strands_per_handle
             )
             pd.set_lch(lazy_augs=True, lazy_bilin=True, coeff_mod=0)
             template_context = get_template_context(pd=pd, skip_augs=True)
