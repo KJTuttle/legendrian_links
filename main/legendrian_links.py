@@ -521,7 +521,7 @@ class PlatDiagram(object):
 
     def __init__(
             self, n_strands, front_crossings=[], n_copy=1, orientation_flips=None, mirror=False, lazy_disks=False,
-            lazy_lch=True, lazy_rsft=True, aug_fill_na=None, spec_poly=False
+            lazy_lch=True, lazy_rsft=True, aug_fill_na=None, spec_poly=False, num_one_handle=0, num_strands_per_handle=None
     ):
         self.n_strands = n_strands
         if mirror:
@@ -535,6 +535,8 @@ class PlatDiagram(object):
         self.lazy_lch = lazy_lch
         self.lazy_rsft = lazy_rsft
         self.aug_fill_na = aug_fill_na
+        self.num_one_handle = num_one_handle
+        self.num_strands_per_handle = num_strands_per_handle or []
         LOG.info(
             f"PlatDiagram(n_strands={n_strands}, front_crossings={front_crossings}, mirror={mirror}, "
             f"n_copy={n_copy}, lazy_disks={lazy_disks}, lazy_lch={lazy_lch}, lazy_rsft={lazy_rsft}), "
@@ -745,19 +747,42 @@ class PlatDiagram(object):
         self._set_rsft_generators()
         self._set_rsft_dga(lazy_augs=lazy_augs, lazy_bilin=lazy_bilin)
 
+    # Here is where we resolve the front diagram into a lagrangian projection, and in doing so
+    # we create an extra crossing at the right cusp then close. Will need to modify for 1 handle case
     def _set_line_segments(self):
         lines = []
         lag_crossings_from_right_cusps = [i for i in range(self.n_strands) if i % 2 == 0]
         lag_crossings = self.front_crossings + lag_crossings_from_right_cusps
 
-        # make the left closing part
+        # --- Identify one handle strands ---
+        one_handle_strands = []
+        strand_to_handle = {}
+        y_cursor = 0
+        for handle_index, n in enumerate(self.num_strands_per_handle):
+            for i in range(n):
+                strand_idx = y_cursor + i
+                one_handle_strands.append(strand_idx)
+                strand_to_handle[strand_idx] = handle_index
+            y_cursor += n
+        plat_strands = [i for i in range(self.n_strands) if i not in one_handle_strands]
+
+        # --- LEFT closing part ---
         x = 0
-        for i in range(self.n_strands):
-            if i % 2 == 0:
-                lines.append(LineSegment(x_left=0, y_left=i + .5, x_right=1, y_right=i))
+        # One handle strands: go straight from the leftmost x-1 (virtual) into the diagram
+        for i in one_handle_strands:
+            ls = LineSegment(x_left=x - 1, y_left=i, x_right=x, y_right=i)
+            ls.one_handle = True
+            ls.handle_index = strand_to_handle[i]
+            lines.append(ls)
+        # Plat closure strands: paired up with cusps
+        plat_strands_sorted = sorted(plat_strands)
+        for idx, i in enumerate(plat_strands_sorted):
+            if idx % 2 == 0:
+                lines.append(LineSegment(x_left=x - 1, y_left=i + .5, x_right=x, y_right=i))
             else:
-                lines.append(LineSegment(x_left=0, y_left=i - .5, x_right=1, y_right=i))
-        # make the segments at x values where there are crossings
+                lines.append(LineSegment(x_left=x - 1, y_left=i - .5, x_right=x, y_right=i))
+
+        # --- Segments at x values where there are crossings (as usual) ---
         if lag_crossings is not None:
             for fcy in lag_crossings:
                 x += 1
@@ -768,10 +793,18 @@ class PlatDiagram(object):
                         lines.append(LineSegment(x_left=x, y_left=s, x_right=x + 1, y_right=s - 1))
                     else:
                         lines.append(LineSegment(x_left=x, y_left=s, x_right=x + 1, y_right=s))
-        # make the right closing part
+
+        # --- RIGHT closing part ---
         x += 1
-        for i in range(self.n_strands):
-            if i % 2 == 0:
+        # One handle strands: go straight out to the rightmost x+1 (virtual)
+        for i in one_handle_strands:
+            ls = LineSegment(x_left=x, y_left=i, x_right=x + 1, y_right=i)
+            ls.one_handle = True
+            ls.handle_index = strand_to_handle[i]
+            lines.append(ls)
+        # Plat closure strands: paired up with cusps
+        for idx, i in enumerate(plat_strands_sorted):
+            if idx % 2 == 0:
                 lines.append(LineSegment(x_left=x, y_left=i, x_right=x + 1, y_right=i + .5))
             else:
                 lines.append(LineSegment(x_left=x, y_left=i, x_right=x + 1, y_right=i - .5))

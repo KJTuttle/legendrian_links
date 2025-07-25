@@ -72,6 +72,24 @@ def get_diagram_context(pd, increment=50, pad=10):
     height = increment * n_strands + pad
     width = (increment * n_segments) + pad + increment
     line_segments = pd.get_line_segment_array()
+    # --- One handle box logic ---
+    one_handle_boxes = []
+    y_cursor = 0
+    for i, n in enumerate(getattr(pd, "num_strands_per_handle", [])):
+        y_indices = list(range(y_cursor, y_cursor + n))
+        y_top = pad + increment * y_cursor
+        y_bottom = pad + increment * (y_cursor + n)
+        box = {
+            "handle_index": i,
+            "x": width - increment // 2,  # Place box at far right
+            "y_top": y_top,
+            "y_bottom": y_bottom,
+            "y_indices": y_indices,
+            "n_strands": n,
+        }
+        one_handle_boxes.append(box)
+        y_cursor += n
+
     output = {
         "knots": knots,
         "knot_labels": list(range(len(knots))),
@@ -81,7 +99,6 @@ def get_diagram_context(pd, increment=50, pad=10):
         "increment": increment,
         "height": height,
         "width": width,
-        #ADD ONE HANDLE
         "lines": [
             {
                 'start_xy': [
@@ -93,10 +110,14 @@ def get_diagram_context(pd, increment=50, pad=10):
                     'x': increment + pad + int(increment * (ls['array'][0][0] + ls['array'][1][0]) / 2),
                     'y': pad + int(increment * (ls['array'][0][1] + ls['array'][1][1]) / 2),
                     'marker': KNOT_ORIENTATIONS_TO_ARROW[ls['orientation']] if ls['t_label'] else ''
-                }
+                },
+                # Optionally, mark if this segment ends at a one handle
+                'one_handle': ls.get('one_handle', False),
+                'handle_index': ls.get('handle_index', None),
             }
             for ls in line_segments
         ],
+        'one_handle_boxes': one_handle_boxes,
         'x_labels': [{"label": x, "x": int(increment + increment * x + increment / 2)} for x in range(n_segments)],
         'y_labels': [{"label": y, "y": int(pad + increment * y + increment / 2)} for y in range(n_strands - 1)],
     }
