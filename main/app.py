@@ -186,7 +186,7 @@ def home():
         if any(x <= 0 for x in num_strands_per_handle):
             raise ValueError("All strands per handle must be positive")
         if (n_strands - sum(num_strands_per_handle)) % 2 != 0:
-            raise ValueError("Cannot close the remiaing strands into a plat")
+            raise ValueError("Cannot close the remaining strands into a plat")
 
         
         # Mirroring
@@ -261,7 +261,9 @@ def home():
                 lazy_lch=lazy_lch,
                 lazy_rsft=lazy_rsft,
                 aug_fill_na=aug_fill_na,
-                spec_poly=spec_poly
+                spec_poly=spec_poly,
+                num_one_handle=num_one_handle,
+                num_strands_per_handle=num_strands_per_handle
             )
             template_context = get_template_context(pd=pd)
     else:

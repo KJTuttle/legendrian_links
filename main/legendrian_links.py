@@ -540,7 +540,7 @@ class PlatDiagram(object):
         LOG.info(
             f"PlatDiagram(n_strands={n_strands}, front_crossings={front_crossings}, mirror={mirror}, "
             f"n_copy={n_copy}, lazy_disks={lazy_disks}, lazy_lch={lazy_lch}, lazy_rsft={lazy_rsft}), "
-            f"aug_fill_na={aug_fill_na}")
+            f"aug_fill_na={aug_fill_na}, num_one_handle={num_one_handle}, num_strands_per_handle={num_strands_per_handle}")
 
         if lazy_disks and ((not lazy_lch) or (not lazy_rsft)):
             raise ValueError("Cannot autocompute DGAs with lazy_disks=True")
@@ -751,38 +751,36 @@ class PlatDiagram(object):
     # we create an extra crossing at the right cusp then close. Will need to modify for 1 handle case
     def _set_line_segments(self):
         lines = []
-        lag_crossings_from_right_cusps = [i for i in range(self.n_strands) if i % 2 == 0]
+        lag_crossings_from_right_cusps = [
+            i + sum(self.num_strands_per_handle)
+            for i in range(self.n_strands - sum(self.num_strands_per_handle))
+            if i % 2 == 0
+        ]
         lag_crossings = self.front_crossings + lag_crossings_from_right_cusps
 
-        # --- Identify one handle strands ---
-        one_handle_strands = []
-        strand_to_handle = {}
-        y_cursor = 0
-        for handle_index, n in enumerate(self.num_strands_per_handle):
-            for i in range(n):
-                strand_idx = y_cursor + i
-                one_handle_strands.append(strand_idx)
-                strand_to_handle[strand_idx] = handle_index
-            y_cursor += n
-        plat_strands = [i for i in range(self.n_strands) if i not in one_handle_strands]
+        # --- Identify one handle and plat closure y-values ---
+        n_one_handle_strands = sum(self.num_strands_per_handle or [])
+        one_handle_ys = list(range(n_one_handle_strands))
+        plat_ys = list(range(n_one_handle_strands, self.n_strands))
 
         # --- LEFT closing part ---
         x = 0
-        # One handle strands: go straight out to the leftmost x=0
-        for i in one_handle_strands:
-            ls = LineSegment(x_left=x, y_left=i, x_right=x+1, y_right=i)
+        # One handle strands: straight in at y=0..n_one_handle_strands-1
+        for y in one_handle_ys:
+            ls = LineSegment(x_left=x, y_left=y, x_right=x+1, y_right=y)
             ls.one_handle = True
-            ls.handle_index = strand_to_handle[i]
             lines.append(ls)
-        # Plat closure strands: paired up with cusps
-        plat_strands_sorted = sorted(plat_strands)
-        for idx, i in enumerate(plat_strands_sorted):
-            if idx % 2 == 0:
-                lines.append(LineSegment(x_left=x, y_left=i + .5, x_right=x+1, y_right=i))
-            else:
-                lines.append(LineSegment(x_left=x, y_left=i - .5, x_right=x+1, y_right=i))
+        # Plat closure: paired up adjacent remaining strands with cusps
+        plat_ys_sorted = sorted(plat_ys)
+        if len(plat_ys_sorted) % 2 != 0:
+            raise ValueError("Number of plat closure strands must be even for proper plat closure.")
+        for i in range(0, len(plat_ys_sorted), 2):
+            y1 = plat_ys_sorted[i]
+            y2 = plat_ys_sorted[i+1]
+            lines.append(LineSegment(x_left=x, y_left=y1 + .5, x_right=x+1, y_right=y1))
+            lines.append(LineSegment(x_left=x, y_left=y2 - .5, x_right=x+1, y_right=y2))
 
-        # --- Segments at x values where there are crossings (as usual) ---
+        # --- Segments at x values where there are crossings ---
         if lag_crossings is not None:
             for fcy in lag_crossings:
                 x += 1
@@ -796,20 +794,24 @@ class PlatDiagram(object):
 
         # --- RIGHT closing part ---
         x += 1
-        # One handle strands: go straight out to the rightmost x+1 (virtual)
-        for i in one_handle_strands:
-            ls = LineSegment(x_left=x, y_left=i, x_right=x + 1, y_right=i)
+        # One handle strands: straight out at y=0..n_one_handle_strands-1
+        for y in one_handle_ys:
+            ls = LineSegment(x_left=x, y_left=y, x_right=x+1, y_right=y)
             ls.one_handle = True
-            ls.handle_index = strand_to_handle[i]
             lines.append(ls)
-        # Plat closure strands: paired up with cusps
-        for idx, i in enumerate(plat_strands_sorted):
-            if idx % 2 == 0:
-                lines.append(LineSegment(x_left=x, y_left=i, x_right=x + 1, y_right=i + .5))
-            else:
-                lines.append(LineSegment(x_left=x, y_left=i, x_right=x + 1, y_right=i - .5))
-
+        # Plat closure: paired up with cusps
+        for i in range(0, len(plat_ys_sorted), 2):
+            y1 = plat_ys_sorted[i]
+            y2 = plat_ys_sorted[i+1]
+            lines.append(LineSegment(x_left=x, y_left=y1, x_right=x+1, y_right=y1 + .5))
+            lines.append(LineSegment(x_left=x, y_left=y2, x_right=x+1, y_right=y2 - .5))
         self.line_segments = lines
+        # Log all rightmost segments for debugging
+        rightmost_x = max(ls.x_right for ls in self.line_segments)
+        LOG.info(f"Rightmost x: {rightmost_x}")
+        for ls in self.line_segments:
+            if ls.x_right == rightmost_x:
+                LOG.info(f"Rightmost segment: {ls.to_array()}")
 
     def _label_line_segments(self):
         knot_label = 0
@@ -819,6 +821,7 @@ class PlatDiagram(object):
             if n_unlabeled_line_segments == 0:
                 break
             initial_ls = unlabeled_line_segments[0]
+            LOG.info(f"Starting new component {knot_label} at segment {initial_ls.to_array()}")
             initial_ls.set_knot_label(knot_label)
             left_right = 'r'
             if self.orientation_flips is not None:
@@ -828,7 +831,9 @@ class PlatDiagram(object):
             initial_ls.set_orientation(left_right)
             ls = self._label_next_line_segment(initial_ls)
             while ls != initial_ls:
+                LOG.info(f"Tracing component {knot_label}: at segment {ls.to_array()} with orientation {ls.orientation}")
                 ls = self._label_next_line_segment(ls)
+            LOG.info(f"Finished component {knot_label}")
             knot_label += 1
         self.n_components = len(set([ls.knot_label for ls in self.line_segments]))
         # add a t label to exactly one line segment in each component of the link
@@ -837,37 +842,67 @@ class PlatDiagram(object):
             knot[0].toggle_t_label()
 
     def _label_next_line_segment(self, ls):
+        LOG.debug(f"Labeling next segment from {ls.to_array()} (orientation {ls.orientation}, knot_label {ls.knot_label})")
         if ls not in self.line_segments:
+            LOG.error('line_segment does not belong to PlatDiagram instance')
             raise ValueError('line_segment does not belong to PlatDiagram instance')
         if ls.orientation is None:
+            LOG.error('Cannot find next line segment if it is not orientated')
             raise ValueError('Cannot find next line segment if it is not orientated')
         if ls.knot_label is None:
+            LOG.error('Cannot find knot_label for line_segment')
             raise ValueError('Cannot find knot_label for line_segment')
 
-        max_x_right = self.max_x_left + 1
-        if ls.orientation == 'r':
-            if ls.x_right < max_x_right:
-                next_ls = self.get_line_segment_by_left_xy(x=ls.x_right, y=ls.y_right)
+    # --- One handle teleportation logic  ---
+        if hasattr(ls, "one_handle") and ls.one_handle:
+            if ls.orientation == 'r' and ls.x_left == self.max_x_left:
+                LOG.debug(f"Teleporting one handle from right to left at y={ls.y_left}")
+                next_ls = [seg for seg in self.line_segments
+                           if getattr(seg, "one_handle", False) and seg.x_left == 0 and seg.y_left == ls.y_left][0]
                 next_ls.set_orientation('r')
-            else:
-                if ls.y_right < ls.y_left:
-                    next_ls = self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left - 1)
-                else:
-                    next_ls = self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left + 1)
+                next_ls.set_knot_label(ls.knot_label)
+                return next_ls
+            elif ls.orientation == 'l' and ls.x_left == 0:
+                LOG.debug(f"Teleporting one handle from left to right at y={ls.y_left}")
+                next_ls = [seg for seg in self.line_segments
+                           if getattr(seg, "one_handle", False) and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
                 next_ls.set_orientation('l')
-        else:
-            if ls.x_left > 0:
-                next_ls = self.get_line_segment_by_right_xy(x=ls.x_left, y=ls.y_left)
-                next_ls.set_orientation('l')
-            else:
-                if ls.y_right < ls.y_left:
-                    next_ls = self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right + 1)
-                else:
-                    next_ls = self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right - 1)
-                next_ls.set_orientation('r')
+                next_ls.set_knot_label(ls.knot_label)
+                return next_ls
 
-        next_ls.set_knot_label(ls.knot_label)
-        return next_ls
+    #normal logic for finding next line segment (no one handle teleportation)
+        max_x_right = self.max_x_left + 1
+        try:
+            if ls.orientation == 'r':
+                if ls.x_right < max_x_right:
+                    LOG.debug(f"Looking for next segment by left_xy at x={ls.x_right}, y={ls.y_right}")
+                    next_ls = self.get_line_segment_by_left_xy(x=ls.x_right, y=ls.y_right)
+                    next_ls.set_orientation('r')
+                else:
+                    LOG.debug(f"At right boundary, looking for next segment by left_xy at x={ls.x_left}, y={ls.y_left - 1 if ls.y_right < ls.y_left else ls.y_left + 1}")
+                    if ls.y_right < ls.y_left:
+                        next_ls = self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left - 1)
+                    else:
+                        next_ls = self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left + 1)
+                    next_ls.set_orientation('l')
+            else:
+                if ls.x_left > 0:
+                    LOG.debug(f"Looking for next segment by right_xy at x={ls.x_left}, y={ls.y_left}")
+                    next_ls = self.get_line_segment_by_right_xy(x=ls.x_left, y=ls.y_left)
+                    next_ls.set_orientation('l')
+                else:
+                    LOG.debug(f"At left boundary, looking for next segment by right_xy at x={ls.x_right}, y={ls.y_right + 1 if ls.y_right < ls.y_left else ls.y_right - 1}")
+                    if ls.y_right < ls.y_left:
+                        next_ls = self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right + 1)
+                    else:
+                        next_ls = self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right - 1)
+                    next_ls.set_orientation('r')
+            LOG.debug(f"Next segment is {next_ls.to_array()} (orientation {next_ls.orientation}, knot_label {next_ls.knot_label})")
+            next_ls.set_knot_label(ls.knot_label)
+            return next_ls
+        except Exception as e:
+            LOG.error(f"Error while labeling next segment from {ls.to_array()} (orientation {ls.orientation}, knot_label {ls.knot_label}): {e}")
+            raise
 
     def _set_chords(self):
         chords = []
