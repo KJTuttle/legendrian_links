@@ -768,9 +768,9 @@ class PlatDiagram(object):
 
         # --- LEFT closing part ---
         x = 0
-        # One handle strands: go straight from the leftmost x-1 (virtual) into the diagram
+        # One handle strands: go straight out to the leftmost x=0
         for i in one_handle_strands:
-            ls = LineSegment(x_left=x - 1, y_left=i, x_right=x, y_right=i)
+            ls = LineSegment(x_left=x, y_left=i, x_right=x+1, y_right=i)
             ls.one_handle = True
             ls.handle_index = strand_to_handle[i]
             lines.append(ls)
@@ -778,9 +778,9 @@ class PlatDiagram(object):
         plat_strands_sorted = sorted(plat_strands)
         for idx, i in enumerate(plat_strands_sorted):
             if idx % 2 == 0:
-                lines.append(LineSegment(x_left=x - 1, y_left=i + .5, x_right=x, y_right=i))
+                lines.append(LineSegment(x_left=x, y_left=i + .5, x_right=x+1, y_right=i))
             else:
-                lines.append(LineSegment(x_left=x - 1, y_left=i - .5, x_right=x, y_right=i))
+                lines.append(LineSegment(x_left=x, y_left=i - .5, x_right=x+1, y_right=i))
 
         # --- Segments at x values where there are crossings (as usual) ---
         if lag_crossings is not None:
