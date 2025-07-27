@@ -41,6 +41,7 @@ KNOT_ORIENTATIONS_TO_ARROW = {
 
 
 def get_template_context(pd, skip_augs=False):
+    LOG.debug(f"get_template_context: hasattr lch_dga? {hasattr(pd, 'lch_dga')}, id(pd)={id(pd)}")
     chords = [
         {
             "string": str(chord),
@@ -63,6 +64,7 @@ def get_template_context(pd, skip_augs=False):
 
 
 def get_diagram_context(pd, increment=50, pad=10):
+    LOG.debug(f"get_diagram_context: id(pd)={id(pd)}")
     knots = pd.knots
     for k in range(len(knots)):
         knots[k]["label"] = k
@@ -125,6 +127,7 @@ def get_diagram_context(pd, increment=50, pad=10):
 
 
 def get_dga_context(dga, name, skip_augs=False):
+    LOG.debug(f"get_dga_context: id(dga)={id(dga)}")
     output = dict()
     output["name"] = name
     output["grading_mod"] = dga.grading_mod
@@ -226,7 +229,9 @@ def home():
                 num_one_handle=num_one_handle,
                 num_strands_per_handle=num_strands_per_handle
             )
+            LOG.info(f"pd.lch_dga={pd.lch_dga}, setting lch")
             pd.set_lch(lazy_augs=True, lazy_bilin=True, coeff_mod=0)
+            LOG.info(f"pd.lch_dga={pd.lch_dga}, after setting lch, about to get template conext")
             template_context = get_template_context(pd=pd, skip_augs=True)
             LOG.info(pd.lch_dga.differentials)
         else:

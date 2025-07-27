@@ -523,6 +523,10 @@ class PlatDiagram(object):
             self, n_strands, front_crossings=[], n_copy=1, orientation_flips=None, mirror=False, lazy_disks=False,
             lazy_lch=True, lazy_rsft=True, aug_fill_na=None, spec_poly=False, num_one_handle=0, num_strands_per_handle=None
     ):
+        self.lch_dga = None
+        self.rsft_dga = None
+        LOG.debug("Set self.lch_dga and self.rsft_dga to None")
+        LOG.debug("PlatDiagram __init__ START")
         self.n_strands = n_strands
         if mirror:
             self.front_crossings = list(reversed(front_crossings))
@@ -559,14 +563,19 @@ class PlatDiagram(object):
         self._set_knots()
         self._set_linking_matrix()
         if lazy_disks:
+            LOG.debug("Exiting __init__ early due to lazy_disks=True")
+            LOG.debug(f"At end of __init__, hasattr(self, 'lch_dga')={hasattr(self, 'lch_dga')}, id(self)={id(self)}")
             return
         self.set_disks_and_gradings()
-        self.lch_dga = None
-        self.rsft_dga = None
+        
         if not lazy_lch:
+            LOG.debug("Calling set_lch()")
             self.set_lch()
         if not lazy_rsft:
+            LOG.debug("Calling set_rsft()")
             self.set_rsft()
+        LOG.debug("PlatDiagram __init__ END")
+        LOG.debug(f"At end of __init__, hasattr(self, 'lch_dga')={hasattr(self, 'lch_dga')}, id(self)={id(self)}")
 
     def copy_front_crossings(self, n):
         new_front_crossings = []
@@ -808,11 +817,8 @@ class PlatDiagram(object):
         self.line_segments = lines
         # Log all rightmost segments for debugging
         rightmost_x = max(ls.x_right for ls in self.line_segments)
-        LOG.info(f"Rightmost x: {rightmost_x}")
-        for ls in self.line_segments:
-            if ls.x_right == rightmost_x:
-                LOG.info(f"Rightmost segment: {ls.to_array()}")
-
+        #LOG.info(f"Rightmost x: {rightmost_x}")
+        
     def _label_line_segments(self):
         knot_label = 0
         while True:
@@ -821,7 +827,7 @@ class PlatDiagram(object):
             if n_unlabeled_line_segments == 0:
                 break
             initial_ls = unlabeled_line_segments[0]
-            LOG.info(f"Starting new component {knot_label} at segment {initial_ls.to_array()}")
+            #LOG.info(f"Starting new component {knot_label} at segment {initial_ls.to_array()}")
             initial_ls.set_knot_label(knot_label)
             left_right = 'r'
             if self.orientation_flips is not None:
@@ -831,7 +837,7 @@ class PlatDiagram(object):
             initial_ls.set_orientation(left_right)
             ls = self._label_next_line_segment(initial_ls)
             while ls != initial_ls:
-                LOG.info(f"Tracing component {knot_label}: at segment {ls.to_array()} with orientation {ls.orientation}")
+                #LOG.info(f"Tracing component {knot_label}: at segment {ls.to_array()} with orientation {ls.orientation}")
                 ls = self._label_next_line_segment(ls)
             LOG.info(f"Finished component {knot_label}")
             knot_label += 1
@@ -842,7 +848,7 @@ class PlatDiagram(object):
             knot[0].toggle_t_label()
 
     def _label_next_line_segment(self, ls):
-        LOG.debug(f"Labeling next segment from {ls.to_array()} (orientation {ls.orientation}, knot_label {ls.knot_label})")
+        #LOG.debug(f"Labeling next segment from {ls.to_array()} (orientation {ls.orientation}, knot_label {ls.knot_label})")
         if ls not in self.line_segments:
             LOG.error('line_segment does not belong to PlatDiagram instance')
             raise ValueError('line_segment does not belong to PlatDiagram instance')
@@ -875,11 +881,11 @@ class PlatDiagram(object):
         try:
             if ls.orientation == 'r':
                 if ls.x_right < max_x_right:
-                    LOG.debug(f"Looking for next segment by left_xy at x={ls.x_right}, y={ls.y_right}")
+                    #LOG.debug(f"Looking for next segment by left_xy at x={ls.x_right}, y={ls.y_right}")
                     next_ls = self.get_line_segment_by_left_xy(x=ls.x_right, y=ls.y_right)
                     next_ls.set_orientation('r')
                 else:
-                    LOG.debug(f"At right boundary, looking for next segment by left_xy at x={ls.x_left}, y={ls.y_left - 1 if ls.y_right < ls.y_left else ls.y_left + 1}")
+                    #LOG.debug(f"At right boundary, looking for next segment by left_xy at x={ls.x_left}, y={ls.y_left - 1 if ls.y_right < ls.y_left else ls.y_left + 1}")
                     if ls.y_right < ls.y_left:
                         next_ls = self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left - 1)
                     else:
@@ -887,17 +893,17 @@ class PlatDiagram(object):
                     next_ls.set_orientation('l')
             else:
                 if ls.x_left > 0:
-                    LOG.debug(f"Looking for next segment by right_xy at x={ls.x_left}, y={ls.y_left}")
+                    #LOG.debug(f"Looking for next segment by right_xy at x={ls.x_left}, y={ls.y_left}")
                     next_ls = self.get_line_segment_by_right_xy(x=ls.x_left, y=ls.y_left)
                     next_ls.set_orientation('l')
                 else:
-                    LOG.debug(f"At left boundary, looking for next segment by right_xy at x={ls.x_right}, y={ls.y_right + 1 if ls.y_right < ls.y_left else ls.y_right - 1}")
+                    #LOG.debug(f"At left boundary, looking for next segment by right_xy at x={ls.x_right}, y={ls.y_right + 1 if ls.y_right < ls.y_left else ls.y_right - 1}")
                     if ls.y_right < ls.y_left:
                         next_ls = self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right + 1)
                     else:
                         next_ls = self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right - 1)
                     next_ls.set_orientation('r')
-            LOG.debug(f"Next segment is {next_ls.to_array()} (orientation {next_ls.orientation}, knot_label {next_ls.knot_label})")
+            #LOG.debug(f"Next segment is {next_ls.to_array()} (orientation {next_ls.orientation}, knot_label {next_ls.knot_label})")
             next_ls.set_knot_label(ls.knot_label)
             return next_ls
         except Exception as e:
