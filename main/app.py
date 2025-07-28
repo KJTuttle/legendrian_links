@@ -72,24 +72,30 @@ def get_diagram_context(pd, increment=50, pad=10):
     n_strands = pd.n_strands
     n_segments = pd.max_x_right
     height = increment * n_strands + pad
-    width = (increment * n_segments) + pad + increment
+    width = (increment * n_segments) + pad + increment + 20  # +20 for handle dots
     line_segments = pd.get_line_segment_array()
-    # --- One handle box logic ---
-    one_handle_boxes = []
+
+    # --- One handle dot logic ---
+    handle_dots = []
     y_cursor = 0
     for i, n in enumerate(getattr(pd, "num_strands_per_handle", [])):
-        y_indices = list(range(y_cursor, y_cursor + n))
-        y_top = pad + increment * y_cursor
-        y_bottom = pad + increment * (y_cursor + n)
-        box = {
-            "handle_index": i,
-            "x": width - increment // 2,  # Place box at far right
-            "y_top": y_top,
-            "y_bottom": y_bottom,
-            "y_indices": y_indices,
-            "n_strands": n,
-        }
-        one_handle_boxes.append(box)
+        for j in range(n):
+            strand_idx = y_cursor + j
+            y = pad + increment * strand_idx
+            # Left dot at x=0
+            handle_dots.append({
+                "x": increment + pad,
+                "y": y,
+                "handle_index": i + 1,  # 1-based for display
+                "side": "left"
+            })
+            # Right dot at x=width
+            handle_dots.append({
+                "x": increment + pad + int(increment * n_segments),
+                "y": y,
+                "handle_index": i + 1,
+                "side": "right"
+            })
         y_cursor += n
 
     output = {
@@ -119,9 +125,9 @@ def get_diagram_context(pd, increment=50, pad=10):
             }
             for ls in line_segments
         ],
-        'one_handle_boxes': one_handle_boxes,
         'x_labels': [{"label": x, "x": int(increment + increment * x + increment / 2)} for x in range(n_segments)],
         'y_labels': [{"label": y, "y": int(pad + increment * y + increment / 2)} for y in range(n_strands - 1)],
+        'handle_dots': handle_dots,
     }
     return output
 

@@ -19,6 +19,24 @@
       {{ thing["label"] }}
     </text>
   {% endfor %}
+  {% for dot in ctx["handle_dots"] %}
+  <circle
+    cx="{{ dot.x }}"
+    cy="{{ dot.y }}"
+    r="8"
+    stroke="black"
+    stroke-width="2"
+    fill="white"
+  />
+  <text
+    x="{{ dot.x + (dot.side == 'left' and -18 or 12) }}"
+    y="{{ dot.y + 5 }}"
+    font-size="16"
+    font-family="Arial"
+    fill="black"
+    text-anchor="{{ dot.side == 'left' and 'end' or 'start' }}"
+  >{{ dot.handle_index }}</text>
+  {% endfor %}
 </svg>
 <br><br>
 Knots with classical invariants:
