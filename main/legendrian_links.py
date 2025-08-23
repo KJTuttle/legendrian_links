@@ -760,12 +760,22 @@ class PlatDiagram(object):
     # we create an extra crossing at the right cusp then close. Will need to modify for 1 handle case
     def _set_line_segments(self):
         lines = []
+        #Right cusps generate a crossing when converting to lagrangian projection
         lag_crossings_from_right_cusps = [
             i + sum(self.num_strands_per_handle)
             for i in range(self.n_strands - sum(self.num_strands_per_handle))
             if i % 2 == 0
         ]
-        lag_crossings = self.front_crossings + lag_crossings_from_right_cusps
+        
+        #One handles generate a half twists when converting to lagrangian projection
+        lag_crossings_from_one_handles = []
+        for i in range(len(self.num_strands_per_handle)):
+            n = self.num_strands_per_handle[i]
+            if n > 1:
+                for j in range(n - 1):
+                    lag_crossings_from_one_handles.append(sum(self.num_strands_per_handle[:i]) + j)
+
+        lag_crossings = self.front_crossings + lag_crossings_from_one_handles + lag_crossings_from_right_cusps
 
         # --- Identify one handle and plat closure y-values ---
         n_one_handle_strands = sum(self.num_strands_per_handle or [])
@@ -800,7 +810,7 @@ class PlatDiagram(object):
                         lines.append(LineSegment(x_left=x, y_left=s, x_right=x + 1, y_right=s - 1))
                     else:
                         lines.append(LineSegment(x_left=x, y_left=s, x_right=x + 1, y_right=s))
-
+        
         # --- RIGHT closing part ---
         x += 1
         # One handle strands: straight out at y=0..n_one_handle_strands-1
