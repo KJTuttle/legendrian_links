@@ -64,6 +64,11 @@ class LCHGenerator(object):
     def _set_grading(self):
         if self.grading_mod == 0:
             maslov = self.capping_path.rotation_number - HALF
+            top = self.chord.top_line_segment
+            bottom = self.chord.bottom_line_segment
+            maslov_grading = top.maslov_potential - bottom.maslov_potential
+            LOG.debug(f"Maslov grading from potentials: {maslov_grading}")
+            LOG.debug(f"Maslov grading from capping path: {maslov}")
             self.grading = maslov
         else:
             self.grading = 0 if self.chord.sign == 1 else 1
@@ -423,7 +428,6 @@ class PlatSegment(object):
             )
         )
         # with a crossing on the right
-        # Why is this here
         disk_segments.append(
             DiskSegment(
                 x=self.x,
@@ -456,6 +460,7 @@ class LineSegment(object):
         self.orientation = None
         self.knot_label = None
         self.t_label = False
+        self.maslov_potential = None
 
     def to_array(self):
         return [[self.x_left, self.y_left], [self.x_right, self.y_right]]
@@ -566,8 +571,8 @@ class PlatDiagram(object):
             LOG.debug("Exiting __init__ early due to lazy_disks=True")
             LOG.debug(f"At end of __init__, hasattr(self, 'lch_dga')={hasattr(self, 'lch_dga')}, id(self)={id(self)}")
             return
+        self.assign_local_maslov_potentials()
         self.set_disks_and_gradings()
-        
         if not lazy_lch:
             LOG.debug("Calling set_lch()")
             self.set_lch()
@@ -636,49 +641,78 @@ class PlatDiagram(object):
                 f'Line segments available: {[ls.to_array() for ls in self.line_segments]}')
         return search_results[0]
 
-    def get_next_line_segment(self, line_segment, reverse=False):
-        orientation = line_segment.orientation
+    def get_next_line_segment(self, ls, reverse=False):
+        orientation = ls.orientation
         if reverse:
             orientation = 'r' if orientation == 'l' else 'r'
+            # --- One handle teleportation logic  ---
+        if hasattr(ls, "one_handle") and ls.one_handle:
+            if ls.orientation == 'r' and ls.x_left == self.max_x_left:
+                LOG.debug(f"Teleporting one handle from right to left at y={ls.y_left}")
+                next_ls = [seg for seg in self.line_segments
+                           if getattr(seg, "one_handle", False) and seg.x_left == 0 and seg.y_left == ls.y_left][0]
+                LOG.debug(f"current line segment {ls} next line segment {next_ls}")
+                return next_ls
+            elif ls.orientation == 'l' and ls.x_left == 0:
+                LOG.debug(f"Teleporting one handle from left to right at y={ls.y_left}")
+                next_ls = [seg for seg in self.line_segments
+                           if getattr(seg, "one_handle", False) and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
+                return next_ls
         if orientation == 'r':
-            if line_segment.x_left == self.max_x_left:
-                if line_segment.y_left > line_segment.y_right:
-                    return self.get_line_segment_by_left_xy(x=line_segment.x_left, y=line_segment.y_left - 1)
+            if ls.x_left == self.max_x_left:
+                if ls.y_left > ls.y_right:
+                    return self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left - 1)
                 else:
-                    return self.get_line_segment_by_left_xy(x=line_segment.x_left, y=line_segment.y_left + 1)
+                    return self.get_line_segment_by_left_xy(x=ls.x_left, y=ls.y_left + 1)
             else:
-                return self.get_line_segment_by_left_xy(x=line_segment.x_right, y=line_segment.y_right)
+                return self.get_line_segment_by_left_xy(x=ls.x_right, y=ls.y_right)
         else:
-            if line_segment.x_left == 0:
-                if line_segment.y_left > line_segment.y_right:
-                    return self.get_line_segment_by_right_xy(x=line_segment.x_right, y=line_segment.y_right + 1)
+            if ls.x_left == 0:
+                if ls.y_left > ls.y_right:
+                    return self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right + 1)
                 else:
-                    return self.get_line_segment_by_right_xy(x=line_segment.x_right, y=line_segment.y_right - 1)
+                    return self.get_line_segment_by_right_xy(x=ls.x_right, y=ls.y_right - 1)
             else:
-                return self.get_line_segment_by_right_xy(x=line_segment.x_left, y=line_segment.y_left)
+                return self.get_line_segment_by_right_xy(x=ls.x_left, y=ls.y_left)
 
     def line_segment_is_incoming_to_left_up_cusp(self, line_segment):
         if not (line_segment.x_left == 0 and line_segment.orientation == 'l'):
             return False
         next_ls = self.get_next_line_segment(line_segment)
+        one_handle_val = getattr(line_segment, 'one_handle', None)
+        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
+        if one_handle_val:
+            return False
         return next_ls.y_right < line_segment.y_right
 
     def line_segment_is_incoming_to_left_down_cusp(self, line_segment):
         if not (line_segment.x_left == 0 and line_segment.orientation == 'l'):
             return False
         next_ls = self.get_next_line_segment(line_segment)
+        one_handle_val = getattr(line_segment, 'one_handle', None)
+        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
+        if one_handle_val:
+            return False
         return next_ls.y_right > line_segment.y_right
 
     def line_segment_is_incoming_to_right_up_cusp(self, line_segment):
         if not (line_segment.x_left == self.max_x_left and line_segment.orientation == 'r'):
             return False
         next_ls = self.get_next_line_segment(line_segment)
+        one_handle_val = getattr(line_segment, 'one_handle', None)
+        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
+        if one_handle_val:
+            return False
         return next_ls.y_left < line_segment.y_left
 
     def line_segment_is_incoming_to_right_down_cusp(self, line_segment):
         if not (line_segment.x_left == self.max_x_left and line_segment.orientation == 'r'):
             return False
         next_ls = self.get_next_line_segment(line_segment)
+        one_handle_val = getattr(line_segment, 'one_handle', None)
+        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
+        if one_handle_val:
+            return False
         return next_ls.y_left > line_segment.y_left
 
     def get_capping_path(self, start_chord, end_chord):
@@ -757,7 +791,7 @@ class PlatDiagram(object):
         self._set_rsft_dga(lazy_augs=lazy_augs, lazy_bilin=lazy_bilin)
 
     # Here is where we resolve the front diagram into a lagrangian projection, and in doing so
-    # we create an extra crossing at the right cusp then close. Will need to modify for 1 handle case
+    # we create an extra crossing at the right cusp then close. 
     def _set_line_segments(self):
         lines = []
         #Right cusps generate a crossing when converting to lagrangian projection
@@ -1001,7 +1035,45 @@ class PlatDiagram(object):
             (chord_1, chord_2) for chord_1 in self.chords for chord_2 in self.chords
             if chord_1.is_composable_with(chord_2)
         ]
-
+    def assign_local_maslov_potentials(self):
+        """
+        Assign Maslov potentials to all line segments in each knot component.
+        Start at the t-labeled segment (potential 0), propagate using get_next_line_segment.
+        At each segment, increment or decrement the potential according to cusp logic.
+        """
+        for knot_label in range(self.n_components):
+            knot = [ls for ls in self.line_segments if ls.knot_label == knot_label]
+            start = [ls for ls in knot if ls.t_label][0]
+            current = start
+            current.maslov_potential = 0
+            LOG.info(f"[Maslov] Start knot {knot_label} at segment {current.to_array()} (t_label={current.t_label}), set potential = 0")
+            visited = set()
+            while True:
+                visited.add(current)
+                next_ls = self.get_next_line_segment(current)
+                if next_ls in visited:
+                    LOG.info(f"[Maslov] Finished knot {knot_label} loop at segment {next_ls.to_array()}")
+                    break  # Finished the loop
+                # Start with the current potential
+                next_potential = current.maslov_potential
+                # Apply cusp rules, right cusp rules are backwards as the resolution turns
+                # down cusps into up cusps via an extra crossing
+                if self.line_segment_is_incoming_to_left_down_cusp(current):
+                    LOG.info(f"[Maslov] {current.to_array()} incoming to left down cusp: -1")
+                    next_potential -= 1
+                if self.line_segment_is_incoming_to_right_up_cusp(current):
+                    LOG.info(f"[Maslov] {current.to_array()} incoming to right up cusp: -1")
+                    next_potential -= 1
+                if self.line_segment_is_incoming_to_left_up_cusp(current):
+                    LOG.info(f"[Maslov] {current.to_array()} incoming to left up cusp: +1")
+                    next_potential += 1
+                if self.line_segment_is_incoming_to_right_down_cusp(current):
+                    LOG.info(f"[Maslov] {current.to_array()} incoming to right down cusp: +1")
+                    next_potential += 1
+                next_ls.maslov_potential = next_potential
+                LOG.info(f"[Maslov] Set segment {next_ls.to_array()} potential = {next_potential}")
+                current = next_ls
+        
     @utils.log_start_stop
     def _set_capping_paths(self):
         self.capping_paths = []
