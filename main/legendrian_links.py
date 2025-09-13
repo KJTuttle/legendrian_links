@@ -63,15 +63,15 @@ class LCHGenerator(object):
 
     def _set_grading(self):
         if self.grading_mod == 0:
-            maslov = self.capping_path.rotation_number - HALF
             top = self.chord.top_line_segment
             bottom = self.chord.bottom_line_segment
             maslov_grading = top.maslov_potential - bottom.maslov_potential
-            LOG.debug(f"Maslov grading from potentials: {maslov_grading}")
-            LOG.debug(f"Maslov grading from capping path: {maslov}")
-            self.grading = maslov
+            self.grading = maslov_grading
         else:
-            self.grading = 0 if self.chord.sign == 1 else 1
+            top = self.chord.top_line_segment
+            bottom = self.chord.bottom_line_segment
+            maslov_grading = top.maslov_potential - bottom.maslov_potential
+            self.grading = maslov_grading % 2
 
     def _set_x(self):
         self.x = self.chord.x
@@ -176,7 +176,6 @@ class DiskCorner(object):
 
 
 class DiskSegment(object):
-
     def __init__(self, x, disk_corner, top_left_ls, bottom_left_ls, top_right_ls, bottom_right_ls):
         self.x = x
         self.disk_corner = disk_corner
@@ -184,10 +183,9 @@ class DiskSegment(object):
         self.bottom_left_ls = bottom_left_ls
         self.top_right_ls = top_right_ls
         self.bottom_right_ls = bottom_right_ls
-        self.corner = None
-        if disk_corner is not None:
-            self.corner = disk_corner.corner
+        self.corner = disk_corner.corner if disk_corner is not None else None
         self._set_y_values()
+        self.ends_on_one_handle, self.one_handle_indices, self.one_handle_index = self._check_one_handle_end()
 
     def _set_y_values(self):
         self.left_y_values = [
@@ -199,6 +197,25 @@ class DiskSegment(object):
             getattr(self.bottom_right_ls, 'y_right', None)
         ]
 
+    def _check_one_handle_end(self):
+        # Check if both endpoints are on one-handle strands and in the same one-handle
+        endpoints = [
+            (self.top_left_ls, getattr(self.top_left_ls, 'one_handle', False), getattr(self.top_left_ls, 'one_handle_index', None)),
+            (self.bottom_left_ls, getattr(self.bottom_left_ls, 'one_handle', False), getattr(self.bottom_left_ls, 'one_handle_index', None)),
+            (self.top_right_ls, getattr(self.top_right_ls, 'one_handle', False), getattr(self.top_right_ls, 'one_handle_index', None)),
+            (self.bottom_right_ls, getattr(self.bottom_right_ls, 'one_handle', False), getattr(self.bottom_right_ls, 'one_handle_index', None)),
+        ]
+        # Filter endpoints that are on one-handle strands
+        one_handle_endpoints = [(ls, idx) for ls, is_oh, idx in endpoints if is_oh and idx is not None]
+        if len(one_handle_endpoints) == 2:
+            # Check if both endpoints are in the same one-handle
+            idx0 = one_handle_endpoints[0][1]
+            idx1 = one_handle_endpoints[1][1]
+            if idx0 == idx1:
+                # Return True, the y-values, and the one-handle index
+                return True, (one_handle_endpoints[0][0].y_left, one_handle_endpoints[1][0].y_left), idx0
+        return False, None, None
+
     def to_dict(self):
         output = dict()
         if self.disk_corner is not None:
@@ -206,6 +223,9 @@ class DiskSegment(object):
         output['x'] = self.x
         output['left_endpoints'] = self.left_y_values
         output['right_endpoints'] = self.right_y_values
+        output['ends_on_one_handle'] = self.ends_on_one_handle
+        output['one_handle_indices'] = self.one_handle_indices
+        output['one_handle_index'] = self.one_handle_index
         return output
 
 
@@ -322,6 +342,13 @@ class Disk(object):
             c.set_lch_orientation()
             orientation = orientation * c.lch_orientation
         self.lch_orientation = orientation
+    def get_one_handle_terms(self):
+        """Return a list of (i, j) for all disk segments ending on a one-handle."""
+        return [
+            ds.one_handle_indices
+            for ds in self.disk_segments
+            if ds.ends_on_one_handle and ds.one_handle_indices is not None
+        ]
 
 class PlatSegment(object):
 
@@ -350,27 +377,25 @@ class PlatSegment(object):
         # into disk pairs, WANT TO MOD this to allow for c_ij 
         if self.left_close:
             line_segments = sorted(self.line_segments, key=lambda ls: ls.y_right)
-            for i in range(len(line_segments)):
-                if i % 2 == 0:
-                    disk_segments.append(
-                        DiskSegment(
-                            x=self.x, disk_corner=None,
-                            top_left_ls=line_segments[i], top_right_ls=line_segments[i],
-                            bottom_left_ls=line_segments[i+1], bottom_right_ls=line_segments[i+1]
-                        )
+            for i in range(0,len(line_segments)-1,2):
+                disk_segments.append(
+                    DiskSegment(
+                        x=self.x, disk_corner=None,
+                        top_left_ls=line_segments[i], top_right_ls=line_segments[i],
+                        bottom_left_ls=line_segments[i+1], bottom_right_ls=line_segments[i+1]
                     )
+                )
             return disk_segments
         line_segments = sorted(self.line_segments, key=lambda ls: ls.y_left)
         if self.right_close:
-            for i in range(len(line_segments)):
-                if i % 2 == 0:
-                    disk_segments.append(
-                        DiskSegment(
-                            x=self.x, disk_corner=None,
-                            top_left_ls=line_segments[i], top_right_ls=line_segments[i],
-                            bottom_left_ls=line_segments[i + 1], bottom_right_ls=line_segments[i + 1]
-                        )
+            for i in range(0,len(line_segments)-1,2):
+                disk_segments.append(
+                    DiskSegment(
+                        x=self.x, disk_corner=None,
+                        top_left_ls=line_segments[i], top_right_ls=line_segments[i],
+                        bottom_left_ls=line_segments[i + 1], bottom_right_ls=line_segments[i + 1]
                     )
+                )
             return disk_segments
 
         # disk segments without crossings
@@ -485,7 +510,8 @@ class CappingPath(object):
     CappingPath's always follow orientation of the knot in which they're contained.
     Rotation numbers are computed assuming that all .
     """
-    # Need to figure out how capping paths work in S1 x S2 case
+    # CappingPaths don't work great in S^1xS^2 for grading
+    # so we modify to instead use Maslov Potential
     def __init__(self, start_chord, end_chord, line_segments, t_label):
         self.start_chord = start_chord
         self.end_chord = end_chord
@@ -648,13 +674,13 @@ class PlatDiagram(object):
             # --- One handle teleportation logic  ---
         if hasattr(ls, "one_handle") and ls.one_handle:
             if ls.orientation == 'r' and ls.x_left == self.max_x_left:
-                LOG.debug(f"Teleporting one handle from right to left at y={ls.y_left}")
+                #LOG.debug(f"Teleporting one handle from right to left at y={ls.y_left}")
                 next_ls = [seg for seg in self.line_segments
                            if getattr(seg, "one_handle", False) and seg.x_left == 0 and seg.y_left == ls.y_left][0]
-                LOG.debug(f"current line segment {ls} next line segment {next_ls}")
+                #LOG.debug(f"current line segment {ls} next line segment {next_ls}")
                 return next_ls
             elif ls.orientation == 'l' and ls.x_left == 0:
-                LOG.debug(f"Teleporting one handle from left to right at y={ls.y_left}")
+                #LOG.debug(f"Teleporting one handle from left to right at y={ls.y_left}")
                 next_ls = [seg for seg in self.line_segments
                            if getattr(seg, "one_handle", False) and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
                 return next_ls
@@ -780,6 +806,10 @@ class PlatDiagram(object):
         self._set_disk_corners()
 
     def set_lch(self, lazy_augs=False, lazy_bilin=False, coeff_mod=2):
+        #Skip Aug for now if one handle case, don't know how to handle C_ij in matrix
+        if self.num_one_handle and sum(self.num_strands_per_handle) > 0:
+            lazy_augs = True
+            lazy_bilin = True
         self._set_lch_grading_mod()
         self._set_lch_generators()
         self._set_lch_dga(lazy_augs=lazy_augs, lazy_bilin=lazy_bilin, coeff_mod=coeff_mod)
@@ -1059,19 +1089,19 @@ class PlatDiagram(object):
                 # Apply cusp rules, right cusp rules are backwards as the resolution turns
                 # down cusps into up cusps via an extra crossing
                 if self.line_segment_is_incoming_to_left_down_cusp(current):
-                    LOG.info(f"[Maslov] {current.to_array()} incoming to left down cusp: -1")
+                    #LOG.info(f"[Maslov] {current.to_array()} incoming to left down cusp: -1")
                     next_potential -= 1
                 if self.line_segment_is_incoming_to_right_up_cusp(current):
-                    LOG.info(f"[Maslov] {current.to_array()} incoming to right up cusp: -1")
+                    #LOG.info(f"[Maslov] {current.to_array()} incoming to right up cusp: -1")
                     next_potential -= 1
                 if self.line_segment_is_incoming_to_left_up_cusp(current):
-                    LOG.info(f"[Maslov] {current.to_array()} incoming to left up cusp: +1")
+                    #LOG.info(f"[Maslov] {current.to_array()} incoming to left up cusp: +1")
                     next_potential += 1
                 if self.line_segment_is_incoming_to_right_down_cusp(current):
-                    LOG.info(f"[Maslov] {current.to_array()} incoming to right down cusp: +1")
+                    #LOG.info(f"[Maslov] {current.to_array()} incoming to right down cusp: +1")
                     next_potential += 1
                 next_ls.maslov_potential = next_potential
-                LOG.info(f"[Maslov] Set segment {next_ls.to_array()} potential = {next_potential}")
+                #LOG.info(f"[Maslov] Set segment {next_ls.to_array()} potential = {next_potential}")
                 current = next_ls
         
     @utils.log_start_stop
@@ -1166,6 +1196,12 @@ class PlatDiagram(object):
                 neg_word = [1]
             # Add negative word of chords as a summand to the LCH
             lch_del[pos_generator] += d.lch_orientation * utils.prod(neg_word)
+            # Add C^0_{ij} terms for disks ending on one-handles
+            for i_j in d.get_one_handle_terms():
+                if i_j is not None:
+                    # You may want to represent C^0_{ij} as a symbol, e.g. sympy.Symbol(f"C0_{i_j[0]}_{i_j[1]}", commutative=True)
+                    c0_symbol = sympy.Symbol(f"C0_{i_j[0]}_{i_j[1]}", commutative=True)
+                    lch_del[pos_generator] += c0_symbol
         lch_del = {
             g.symbol: algebra.Differential(lch_del[g])
             for g in lch_del.keys()

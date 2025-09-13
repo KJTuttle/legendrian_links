@@ -154,11 +154,18 @@ def get_dga_context(dga, name, skip_augs=False):
     if not skip_augs:
         output["lin_poly_list"] = dga.lin_poly_list
         output["bilin_poly_list"] = dga.bilin_poly_list
-        output["n_augs"] = len(dga.augmentations)
-        output["has_augs"] = len(dga.augmentations) > 0
-        deg_0_gens = [g for g in generators if g["grading"] == 0]
-        output["deg_0_gens"] = deg_0_gens
-        output["augs"] = [{g["name"]: aug[g["symbol"]] for g in deg_0_gens} for aug in dga.augmentations]
+        # --- Add this check ---
+        if dga.augmentations is not None:
+            output["n_augs"] = len(dga.augmentations)
+            output["has_augs"] = len(dga.augmentations) > 0
+            deg_0_gens = [g for g in generators if g["grading"] == 0]
+            output["deg_0_gens"] = deg_0_gens
+            output["augs"] = [{g["name"]: aug[g["symbol"]] for g in deg_0_gens} for aug in dga.augmentations]
+        else:
+            output["n_augs"] = 0
+            output["has_augs"] = False
+            output["deg_0_gens"] = []
+            output["augs"] = []
         output["bilin_polys"] = dga.bilin_polys
         output["bilin_polys_dual"] = dga.bilin_polys_dual
     return output
