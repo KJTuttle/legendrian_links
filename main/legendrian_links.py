@@ -200,20 +200,20 @@ class DiskSegment(object):
     def _check_one_handle_end(self):
         # Check if both endpoints are on one-handle strands and in the same one-handle
         endpoints = [
-            (self.top_left_ls, getattr(self.top_left_ls, 'one_handle', False), getattr(self.top_left_ls, 'one_handle_index', None)),
-            (self.bottom_left_ls, getattr(self.bottom_left_ls, 'one_handle', False), getattr(self.bottom_left_ls, 'one_handle_index', None)),
-            (self.top_right_ls, getattr(self.top_right_ls, 'one_handle', False), getattr(self.top_right_ls, 'one_handle_index', None)),
-            (self.bottom_right_ls, getattr(self.bottom_right_ls, 'one_handle', False), getattr(self.bottom_right_ls, 'one_handle_index', None)),
+            (self.top_left_ls, getattr(self.top_left_ls, 'one_handle_index', None)),
+            (self.bottom_left_ls, getattr(self.bottom_left_ls, 'one_handle_index', None)),
+            (self.top_right_ls, getattr(self.top_right_ls, 'one_handle_index', None)),
+            (self.bottom_right_ls, getattr(self.bottom_right_ls, 'one_handle_index', None)),
         ]
-        # Filter endpoints that are on one-handle strands
-        one_handle_endpoints = [(ls, idx) for ls, is_oh, idx in endpoints if is_oh and idx is not None]
+        one_handle_endpoints = [(ls, idx) for ls, idx in endpoints if idx is not None and ls is not None]
         if len(one_handle_endpoints) == 2:
-            # Check if both endpoints are in the same one-handle
             idx0 = one_handle_endpoints[0][1]
             idx1 = one_handle_endpoints[1][1]
-            if idx0 == idx1:
-                # Return True, the y-values, and the one-handle index
-                return True, (one_handle_endpoints[0][0].y_left, one_handle_endpoints[1][0].y_left), idx0
+            y0 = getattr(one_handle_endpoints[0][0], 'y_left', None)
+            y1 = getattr(one_handle_endpoints[1][0], 'y_left', None)
+            if idx0 == idx1 and y0 is not None and y1 is not None and y0 != y1:
+                i, j = sorted((y0, y1))
+                return True, (i, j), idx0
         return False, None, None
 
     def to_dict(self):
@@ -251,7 +251,7 @@ class DiskSegmentGraph(object):
         if (vertex.x == self.n_segments - 1) or (vertex.corner == 'r'):
             return True
         return False
-
+    #below not used?
     def vertex_dead_end(self, i):
         for e in self.edges:
             if e[0] == i:
@@ -309,7 +309,7 @@ class Disk(object):
 
     def __repr__(self):
         return str([str(dc) for dc in self.disk_corners])
-
+    #Below not used?
     def get_endpoints(self):
         return [ds.get_endpoint_y_values() for ds in self.disk_segments]
 
@@ -370,32 +370,57 @@ class PlatSegment(object):
         }
 
     def get_disk_segments(self):
-        # enumerate all of the disk segments and return them as a set
         disk_segments = []
-        # if it is a left close of a right close
-        # if left.close, then we sort strands by their right y values. Then we pair up adjacent strands
-        # into disk pairs, WANT TO MOD this to allow for c_ij 
+
+        # --- LEFT CLOSE (x=0) ---
         if self.left_close:
-            line_segments = sorted(self.line_segments, key=lambda ls: ls.y_right)
-            for i in range(0,len(line_segments)-1,2):
-                disk_segments.append(
-                    DiskSegment(
+            # One-handle strands: enumerate all unordered pairs
+            one_handle_segments = [ls for ls in self.line_segments if getattr(ls, "one_handle_index", None) is not None]
+            n = len(one_handle_segments)
+            for i in range(n):
+                for j in range(i+1, n):
+                    ds = DiskSegment(
                         x=self.x, disk_corner=None,
-                        top_left_ls=line_segments[i], top_right_ls=line_segments[i],
-                        bottom_left_ls=line_segments[i+1], bottom_right_ls=line_segments[i+1]
+                        top_left_ls=one_handle_segments[i], top_right_ls=one_handle_segments[i],
+                        bottom_left_ls=one_handle_segments[j], bottom_right_ls=one_handle_segments[j]
                     )
+                    disk_segments.append(ds)
+            # Plat closure strands: pair up adjacently
+            plat_segments = [ls for ls in self.line_segments if getattr(ls, "one_handle_index", None) is None]
+            plat_segments = sorted(plat_segments, key=lambda ls: ls.y_right)
+            for i in range(0, len(plat_segments)-1, 2):
+                ds = DiskSegment(
+                    x=self.x, disk_corner=None,
+                    top_left_ls=plat_segments[i], top_right_ls=plat_segments[i],
+                    bottom_left_ls=plat_segments[i+1], bottom_right_ls=plat_segments[i+1]
                 )
+                disk_segments.append(ds)
             return disk_segments
+
+        # --- RIGHT CLOSE (x=max_x) ---
         line_segments = sorted(self.line_segments, key=lambda ls: ls.y_left)
         if self.right_close:
-            for i in range(0,len(line_segments)-1,2):
-                disk_segments.append(
-                    DiskSegment(
+            # One-handle strands: enumerate all unordered pairs
+            one_handle_segments = [ls for ls in line_segments if getattr(ls, "one_handle_index", None) is not None]
+            n = len(one_handle_segments)
+            for i in range(n):
+                for j in range(i+1, n):
+                    ds = DiskSegment(
                         x=self.x, disk_corner=None,
-                        top_left_ls=line_segments[i], top_right_ls=line_segments[i],
-                        bottom_left_ls=line_segments[i + 1], bottom_right_ls=line_segments[i + 1]
+                        top_left_ls=one_handle_segments[i], top_right_ls=one_handle_segments[i],
+                        bottom_left_ls=one_handle_segments[j], bottom_right_ls=one_handle_segments[j]
                     )
+                    disk_segments.append(ds)
+            # Plat closure strands: pair up adjacently (need sorting)
+            plat_segments = [ls for ls in line_segments if getattr(ls, "one_handle_index", None) is None]
+            plat_segments = sorted(plat_segments, key=lambda ls: ls.y_left)  # <--- add this
+            for i in range(0, len(plat_segments)-1, 2):
+                ds = DiskSegment(
+                    x=self.x, disk_corner=None,
+                    top_left_ls=plat_segments[i], top_right_ls=plat_segments[i],
+                    bottom_left_ls=plat_segments[i+1], bottom_right_ls=plat_segments[i+1]
                 )
+                disk_segments.append(ds)
             return disk_segments
 
         # disk segments without crossings
@@ -486,6 +511,7 @@ class LineSegment(object):
         self.knot_label = None
         self.t_label = False
         self.maslov_potential = None
+        self.one_handle_index = None
 
     def to_array(self):
         return [[self.x_left, self.y_left], [self.x_right, self.y_right]]
@@ -670,20 +696,19 @@ class PlatDiagram(object):
     def get_next_line_segment(self, ls, reverse=False):
         orientation = ls.orientation
         if reverse:
-            orientation = 'r' if orientation == 'l' else 'r'
+            orientation = 'l' if orientation == 'r' else 'r'
             # --- One handle teleportation logic  ---
-        if hasattr(ls, "one_handle") and ls.one_handle:
+        if getattr(ls, "one_handle_index", None) is not None:
             if ls.orientation == 'r' and ls.x_left == self.max_x_left:
                 #LOG.debug(f"Teleporting one handle from right to left at y={ls.y_left}")
                 next_ls = [seg for seg in self.line_segments
-                           if getattr(seg, "one_handle", False) and seg.x_left == 0 and seg.y_left == ls.y_left][0]
+                           if getattr(seg, "one_handle_index", None) is not None and seg.x_left == 0 and seg.y_left == ls.y_left][0]
                 #LOG.debug(f"current line segment {ls} next line segment {next_ls}")
                 return next_ls
             elif ls.orientation == 'l' and ls.x_left == 0:
                 #LOG.debug(f"Teleporting one handle from left to right at y={ls.y_left}")
                 next_ls = [seg for seg in self.line_segments
-                           if getattr(seg, "one_handle", False) and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
-                return next_ls
+                            if getattr(seg, "one_handle_index", None) is not None and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
         if orientation == 'r':
             if ls.x_left == self.max_x_left:
                 if ls.y_left > ls.y_right:
@@ -704,41 +729,33 @@ class PlatDiagram(object):
     def line_segment_is_incoming_to_left_up_cusp(self, line_segment):
         if not (line_segment.x_left == 0 and line_segment.orientation == 'l'):
             return False
-        next_ls = self.get_next_line_segment(line_segment)
-        one_handle_val = getattr(line_segment, 'one_handle', None)
-        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
-        if one_handle_val:
+        if getattr(line_segment, 'one_handle_index', None) is not None:
             return False
+        next_ls = self.get_next_line_segment(line_segment)
         return next_ls.y_right < line_segment.y_right
 
     def line_segment_is_incoming_to_left_down_cusp(self, line_segment):
         if not (line_segment.x_left == 0 and line_segment.orientation == 'l'):
             return False
-        next_ls = self.get_next_line_segment(line_segment)
-        one_handle_val = getattr(line_segment, 'one_handle', None)
-        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
-        if one_handle_val:
+        if getattr(line_segment, 'one_handle_index', None) is not None:
             return False
+        next_ls = self.get_next_line_segment(line_segment)
         return next_ls.y_right > line_segment.y_right
 
     def line_segment_is_incoming_to_right_up_cusp(self, line_segment):
         if not (line_segment.x_left == self.max_x_left and line_segment.orientation == 'r'):
             return False
-        next_ls = self.get_next_line_segment(line_segment)
-        one_handle_val = getattr(line_segment, 'one_handle', None)
-        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
-        if one_handle_val:
+        if getattr(line_segment, 'one_handle_index', None) is not None:
             return False
+        next_ls = self.get_next_line_segment(line_segment)
         return next_ls.y_left < line_segment.y_left
 
     def line_segment_is_incoming_to_right_down_cusp(self, line_segment):
         if not (line_segment.x_left == self.max_x_left and line_segment.orientation == 'r'):
             return False
-        next_ls = self.get_next_line_segment(line_segment)
-        one_handle_val = getattr(line_segment, 'one_handle', None)
-        LOG.debug(f"next_ls.one_handle: {one_handle_val}")
-        if one_handle_val:
+        if getattr(line_segment, 'one_handle_index', None) is not None:
             return False
+        next_ls = self.get_next_line_segment(line_segment)
         return next_ls.y_left > line_segment.y_left
 
     def get_capping_path(self, start_chord, end_chord):
@@ -843,16 +860,17 @@ class PlatDiagram(object):
 
         # --- Identify one handle and plat closure y-values ---
         n_one_handle_strands = sum(self.num_strands_per_handle or [])
-        one_handle_ys = list(range(n_one_handle_strands))
         plat_ys = list(range(n_one_handle_strands, self.n_strands))
 
         # --- LEFT closing part ---
         x = 0
-        # One handle strands: straight in at y=0..n_one_handle_strands-1
-        for y in one_handle_ys:
-            ls = LineSegment(x_left=x, y_left=y, x_right=x+1, y_right=y)
-            ls.one_handle = True
-            lines.append(ls)
+        offset = 0
+        for handle_idx, n in enumerate(self.num_strands_per_handle or []):
+            for y in range(offset, offset + n):
+                ls = LineSegment(x_left=x, y_left=y, x_right=x+1, y_right=y)
+                ls.one_handle_index = handle_idx
+                lines.append(ls)
+            offset += n
         # Plat closure: paired up adjacent remaining strands with cusps
         plat_ys_sorted = sorted(plat_ys)
         if len(plat_ys_sorted) % 2 != 0:
@@ -877,11 +895,13 @@ class PlatDiagram(object):
         
         # --- RIGHT closing part ---
         x += 1
-        # One handle strands: straight out at y=0..n_one_handle_strands-1
-        for y in one_handle_ys:
-            ls = LineSegment(x_left=x, y_left=y, x_right=x+1, y_right=y)
-            ls.one_handle = True
-            lines.append(ls)
+        offset = 0
+        for handle_idx, n in enumerate(self.num_strands_per_handle or []):
+            for y in range(offset, offset + n):
+                ls = LineSegment(x_left=x, y_left=y, x_right=x+1, y_right=y)
+                ls.one_handle_index = handle_idx
+                lines.append(ls)
+            offset += n
         # Plat closure: paired up with cusps
         for i in range(0, len(plat_ys_sorted), 2):
             y1 = plat_ys_sorted[i]
@@ -934,18 +954,18 @@ class PlatDiagram(object):
             raise ValueError('Cannot find knot_label for line_segment')
 
     # --- One handle teleportation logic  ---
-        if hasattr(ls, "one_handle") and ls.one_handle:
+        if getattr(ls, "one_handle_index", None) is not None:
             if ls.orientation == 'r' and ls.x_left == self.max_x_left:
                 LOG.debug(f"Teleporting one handle from right to left at y={ls.y_left}")
                 next_ls = [seg for seg in self.line_segments
-                           if getattr(seg, "one_handle", False) and seg.x_left == 0 and seg.y_left == ls.y_left][0]
+                           if getattr(seg, "one_handle_index", None) is not None and seg.x_left == 0 and seg.y_left == ls.y_left][0]
                 next_ls.set_orientation('r')
                 next_ls.set_knot_label(ls.knot_label)
                 return next_ls
             elif ls.orientation == 'l' and ls.x_left == 0:
                 LOG.debug(f"Teleporting one handle from left to right at y={ls.y_left}")
                 next_ls = [seg for seg in self.line_segments
-                           if getattr(seg, "one_handle", False) and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
+                            if getattr(seg, "one_handle_index", None) is not None and seg.x_left == self.max_x_left and seg.y_left == ls.y_left][0]
                 next_ls.set_orientation('l')
                 next_ls.set_knot_label(ls.knot_label)
                 return next_ls
@@ -1167,6 +1187,10 @@ class PlatDiagram(object):
     def _set_lch_generators(self):
         lch_generators = []
         for chord in self.chords:
+            # Debug: verify parity at chord endpoints
+            top = chord.top_line_segment.maslov_potential
+            bot = chord.bottom_line_segment.maslov_potential
+            LOG.debug(f"[LCH] chord x={chord.x} maslov(top-bottom)={top}-{bot}={top-bot}")
             capping_path = (
                 self.get_capping_path(start_chord=chord, end_chord=chord)
                 if self.lch_grading_mod == 0 else None
@@ -1199,14 +1223,16 @@ class PlatDiagram(object):
             # Add C^0_{ij} terms for disks ending on one-handles
             for i_j in d.get_one_handle_terms():
                 if i_j is not None:
-                    # You may want to represent C^0_{ij} as a symbol, e.g. sympy.Symbol(f"C0_{i_j[0]}_{i_j[1]}", commutative=True)
-                    c0_symbol = sympy.Symbol(f"C0_{i_j[0]}_{i_j[1]}", commutative=True)
+                    i, j = sorted(i_j)
+                    c0_symbol = sympy.Symbol(f"C0_{i}_{j}", commutative=True)
                     lch_del[pos_generator] += c0_symbol
-        lch_del = {
-            g.symbol: algebra.Differential(lch_del[g])
-            for g in lch_del.keys()
-        }
-        gradings = {g.symbol: g.grading for g in self.lch_generators}
+        # Canonicalize gradings at build time (defensive)
+        if self.lch_grading_mod == 2:
+            gradings = {g.symbol: (int(g.grading) % 2) for g in self.lch_generators}
+        else:
+            gradings = {g.symbol: int(g.grading) for g in self.lch_generators}
+        lch_del = {g.symbol: algebra.Differential(lch_del[g], coeff_mod=coeff_mod) for g in lch_del.keys()}
+
         self.lch_dga = algebra.DGA(
             gradings=gradings, differentials=lch_del, coeff_mod=coeff_mod, grading_mod=self.lch_grading_mod,
             lazy_augs=lazy_augs, lazy_bilin=lazy_bilin, aug_fill_na=self.aug_fill_na

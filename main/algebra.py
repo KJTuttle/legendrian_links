@@ -15,10 +15,15 @@ class Differential(object):
     """Differential of a sympy symbol."""
 
     def __init__(self, expression, coeff_mod=2):
-        self.expression = expression
         self.coeff_mod = coeff_mod
+        # store expression reduced modulo coeff_mod (so display and downstream agree)
+        self.expression = self._reduce_mod(expression) if coeff_mod != 0 else sympy.sympify(expression)
+
 
     def __repr__(self):
+        # Always render reduced form when working over a finite field
+        if self.coeff_mod != 0:
+            return str(self._reduce_mod(self.expression))
         return str(self.expression)
 
     def is_linear(self):
@@ -52,7 +57,31 @@ class Differential(object):
                         output_summands.append(summand)
             output = sum(output_summands)
         return Differential(expression=output, coeff_mod=self.coeff_mod)
-
+    
+    def _reduce_mod(self, expr):
+        poly = sympy.sympify(expr)
+        # constant term
+        if poly.is_number:
+            return sympy.Integer(int(poly) % self.coeff_mod)
+        # reduce each coefficient mod p
+        coeff_dict = dict(poly.as_coefficients_dict())
+        out = 0
+        for monom, coeff in coeff_dict.items():
+            try:
+                # integers
+                if getattr(coeff, 'q', 1) == 1:
+                    c = int(coeff) % self.coeff_mod
+                else:
+                    # rationals a/b -> a * b^{-1} mod p (rare here)
+                    a = int(coeff.p)
+                    b = int(coeff.q)
+                    inv_b = utils.num_inverse(b, self.coeff_mod)
+                    c = (a * inv_b) % self.coeff_mod
+            except Exception:
+                c = int(sympy.Integer(coeff) % self.coeff_mod)
+            if c != 0:
+                out += c * monom
+        return sympy.sympify(out)
 
 class Matrix(object):
     """Attributes:
@@ -443,6 +472,7 @@ class DGBase(object):
         self.coeff_mod = coeff_mod
         self.grading_mod = grading_mod
         self._verify_init_args()
+        self._normalize_differentials_to_mod()
         self._correct_gradings()
         self._correct_filtration_levels()
         self._set_min_max_gradings()
@@ -489,7 +519,12 @@ class DGBase(object):
         for g, d in self.differentials.items():
             if not isinstance(d, Differential):
                 raise ValueError(f"Differential for {g} is not instance of class Differential.")
-
+    def _normalize_differentials_to_mod(self):
+        # Re-wrap differentials with this DGA’s coeff_mod so printing and algebra agree
+        self.differentials = {
+            g: Differential(d.expression, coeff_mod=self.coeff_mod)
+            for g, d in self.differentials.items()
+        }
     def _correct_gradings(self):
         if self.grading_mod != 0:
             corrected_gradings = {g: self.gradings[g] % self.grading_mod for g in self.gradings.keys()}
